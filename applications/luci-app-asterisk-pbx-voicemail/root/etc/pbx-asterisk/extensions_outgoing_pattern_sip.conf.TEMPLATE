@@ -1,1 +1,1 @@
-exten => |PATTERN|,1,Dial(SIP/${EXTEN|SYMBOLSTOREMOVE|}@peer-|NAME|,60,r)
+exten => |PATTERN|,1,Dial(SIP/${EXTEN|SYMBOLSTOREMOVE|}@|NAME|,60,r)

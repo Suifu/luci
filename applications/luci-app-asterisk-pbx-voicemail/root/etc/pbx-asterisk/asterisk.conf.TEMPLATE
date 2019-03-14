@@ -12,6 +12,15 @@ astlogdir => /var/log/asterisk
 
 [options]
 languageprefix = yes
-dumpcore = no
+;dumpcore|
 runuser = nobody
 rungroup = nogroup
+;demug|
+;silenc|
+;cacherec|
+;dontwarn|
+;maxcalls|
+;nocolor|
+;transcode|
+;live_dangerously|
+;verbose|

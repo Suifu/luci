@@ -1,1 +1,2 @@
-exten =>     |DEFAULTUSER|,1,Dial(SIP/|DEFAULTUSER|,${RINGTIME},r)
+exten =>     |DEFAULTUSER|,1,Dial(|DETUSER|,${RINGTIME},r)
+;exten =>  ,Dial(PJSIP\ )

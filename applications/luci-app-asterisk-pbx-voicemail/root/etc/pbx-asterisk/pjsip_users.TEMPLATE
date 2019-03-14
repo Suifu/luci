@@ -1,0 +1,19 @@
+
+;First version very simplified
+[|FULLNAME|]
+type = endpoint
+context = internal
+disallow = all
+allow = ulaw
+aors = |FULLNAME|
+auth = auth|FULLNAME|
+ 
+[|FULLNAME|]
+type = aor
+max_contacts = 1
+ 
+[auth|FULLNAME|]
+type=auth
+auth_type=userpass
+password=|SECRET|
+username=|FULLNAME|

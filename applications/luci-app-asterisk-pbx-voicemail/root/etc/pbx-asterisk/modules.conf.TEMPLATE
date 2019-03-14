@@ -1,5 +1,5 @@
 [modules]
-autoload=no
+autoload=no ; yes work in progress
 load => res_jabber.so ; Used for Gtalk
 load => res_clioriginate.so ; originate calls from commandline
 load => res_rtp_asterisk.so ; rtp "engine" is now a loadable module in asterisk 1.8

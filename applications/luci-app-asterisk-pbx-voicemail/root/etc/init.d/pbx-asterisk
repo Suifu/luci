@@ -1,6 +1,8 @@
 #!/bin/sh /etc/rc.common
 #
-# Copyright 2011 Iordan Iordanov <iiordanov (AT) gmail.com>
+#    Copyright 2018 Edits by Plasmodium
+#
+#    Copyright 2011 Iordan Iordanov <iiordanov (AT) gmail.com>
 #
 #    This file is part of luci-pbx.
 #
@@ -35,7 +37,7 @@ ASTSOUNDSDIR="/usr/lib/asterisk/sounds"
 
 TEMPLATEDIR=/etc/${MODULENAME}-asterisk
 PBXSOUNDSDIR=$TEMPLATEDIR/sounds
-VMTEMPLATEDIR=/etc/${MODULENAME}-voicemail
+VMTEMPLATEDIR=/etc/${MODULENAME}-asterisk
 VMSOUNDSDIR=$VMTEMPLATEDIR/sounds
 ASTERISKDIR=/etc/asterisk
 WORKDIR=/tmp/$MODULENAME.$$
@@ -90,6 +92,14 @@ TMPL_EXTOUTSIP=$TEMPLATEDIR/extensions_outgoing_sip.conf.TEMPLATE
 
 TMPL_JABBER=$TEMPLATEDIR/jabber.conf.TEMPLATE
 TMPL_JABBERUSER=$TEMPLATEDIR/jabber_users.conf.TEMPLATE
+
+TMPL_IAX=$TEMPLATEDIR/iax.conf.TEMPLATE
+TMPL_IAXUSR=$TEMPLATEDIR/iax_user.TEMPLATE
+
+TMPL_USER=$TEMPLATEDIR/user.conf.TEMPLATE
+
+TMPL_PJSIP=$TEMPLATEDIR/pjsip.conf.TEMPLATE
+
 TMPL_SIP=$TEMPLATEDIR/sip.conf.TEMPLATE
 TMPL_SIPPEER=$TEMPLATEDIR/sip_peer.TEMPLATE
 TMPL_SIPREG=$TEMPLATEDIR/sip_registration.TEMPLATE
@@ -100,14 +110,14 @@ TMPL_MSMTPACCOUNT=$VMTEMPLATEDIR/pbx-msmtprc-account.TEMPLATE
 TMPL_MSMTPAUTH=$VMTEMPLATEDIR/pbx-msmtprc-account-auth.TEMPLATE
 TMPL_MSMTPACCTDFLT=$VMTEMPLATEDIR/pbx-msmtprc-account-default.TEMPLATE
 
-
 INCLUDED_FILES="$WORKDIR/extensions_blacklist.conf $WORKDIR/extensions_callthrough.conf\
                 $WORKDIR/extensions_incoming.conf  $WORKDIR/extensions_incoming_gtalk.conf\
                 $WORKDIR/extensions_user.conf      $WORKDIR/jabber_users.conf\
                 $WORKDIR/sip_peers.conf            $WORKDIR/sip_registrations.conf\
                 $WORKDIR/sip_users.conf            $WORKDIR/extensions_voicemail.conf\
-                $WORKDIR/extensions_default.conf"
-
+                $WORKDIR/extensions_default.conf   $WORKDIR/pjsip.conf\
+                $WORKDIR/iax_users.conf            $WORKDIR/user.conf\
+                $WORKDIR/iax.conf"
 
 # In this string, we concatenate all local users enabled to receive calls
 # readily formatted for the Dial command.
@@ -138,8 +148,8 @@ sub_underscore_for_non_alpha() {
 # Copies the template files which we don't edit.
 copy_unedited_templates_over()
 {
-    cp $TMPL_ASTERISK      $WORKDIR/asterisk.conf
-    cp $TMPL_GTALK         $WORKDIR/gtalk.conf
+    # cp $TMPL_ASTERISK      $WORKDIR/asterisk.conf
+    # cp $TMPL_GTALK         $WORKDIR/gtalk.conf
     cp $TMPL_INDICATIONS   $WORKDIR/indications.conf
     cp $TMPL_LOGGER        $WORKDIR/logger.conf
     cp $TMPL_MANAGER       $WORKDIR/manager.conf
@@ -188,7 +198,7 @@ pbx_create_extensions_config()
 
     rm -f $WORKDIR/outext-*.TMP
     rm -f $WORKDIR/localext.TMP
-    sed "s/|LOCALUSERS|/$localusers_to_ring/g" $TMPL_EXTDEFAULT \
+    sed "s/|LOCALUSERS|/$localusers_to_ring/g"       $TMPL_EXTDEFAULT \
                                                    > $WORKDIR/extensions_default.conf
     cat $WORKDIR/inextuser.TMP                    >> $WORKDIR/extensions_default.conf
     rm -f $WORKDIR/inextuser.TMP
@@ -200,6 +210,7 @@ pbx_create_sip_config()
     mv $WORKDIR/sip_regs.TMP    $WORKDIR/sip_registrations.conf
     mv $WORKDIR/sip_peers.TMP   $WORKDIR/sip_peers.conf
     mv $WORKDIR/sip_users.TMP   $WORKDIR/sip_users.conf
+    mv $WORKDIR/iax_users.TMP   $WORKDIR/iax_users.conf
 }
 
 # Creates the jabber.conf related config
@@ -255,7 +266,7 @@ pbx_assemble_and_copy_config()
     create_included_files
     pbx_create_extensions_config
     pbx_create_sip_config
-    pbx_create_jabber_config
+    # pbx_create_jabber_config
 
     touch    $WORKDIR/features.conf
 
@@ -277,52 +288,110 @@ pbx_add_user()
     local fullname
     local defaultuser
     local rawdefaultuser
+    local technology
     local secret
     local ring
     local can_call
 
-    config_get fullname    $1 fullname
+    config_get fullname        $1  fullname
     fullname=`escape_non_alpha $fullname`
-    config_get rawdefaultuser $1 defaultuser
+    config_get rawdefaultuser  $1  defaultuser
     defaultuser=`escape_non_alpha $rawdefaultuser`
-    config_get secret      $1 secret
+    config_get secret          $1  secret
     secret=`escape_non_alpha $secret`
-    config_get ring        $1 ring
-    config_get can_call    $1 can_call
+    config_get ring            $1  ring
+    config_get can_call        $1  can_call
+    config_get technology      $1  technology
 
-    [ -z "$defaultuser" -o -z "$secret" ] && return
-    [ -z "$fullname" ] && fullname="$defaultuser"
+    [ -z "$fullname" -o -z "$secret" ] && return
+    [ -z "$fullname" ] && fullname="$fullname"
 
-    sed "s/|DEFAULTUSER|/$defaultuser/g" $TMPL_SIPUSR > $WORKDIR/sip_user.tmp
-
-    if [ "$can_call" = "yes" ] ; then
-        # Add user to list of all users that are allowed to make calls.
-        localusers_can_dial="$localusers_can_dial $rawdefaultuser"
-        sed -i "s/|CONTEXTNAME|/$defaultuser/g"     $WORKDIR/sip_user.tmp
-    else
-        sed -i "s/|CONTEXTNAME|/$HANGUPCNTXT/g"     $WORKDIR/sip_user.tmp
-    fi
-
-    # Add this user's configuration to the temp file containing all user configs.
-    sed "s/|FULLNAME|/$fullname/" $WORKDIR/sip_user.tmp |\
-             sed "s/|SECRET|/$secret/g"                       >> $WORKDIR/sip_users.TMP
-
-    if [ "$ring" = "yes" ] ; then
-        if [ -z "$localusers_to_ring" ] ; then
-            localusers_to_ring="SIP\/$defaultuser"
+    if [ "$technology" = "sip" ] ; then
+        userca="SIP$fullname"        # For now simplify set of defaut and variables only 4 SIP
+        usersco="SIP\/$fullname"
+        sed "s/|DEFAULTUSER|/$fullname/g"  $TMPL_SIPUSR > $WORKDIR/sip_user.tmp
+        # Add user to list of all SIP users.
+        sed -i 's/|hassip|/hassip = yes/g'                $WORKDIR/sip_user.tmp
+        sed -i 's/|hasiax|/hasiax = no/g'                 $WORKDIR/sip_user.tmp
+        sed -i 's/|autoprov|/autoprov = yes/g'            $WORKDIR/sip_user.tmp
+        sed -i 's/|insecure|/insecure = port,invite/g'    $WORKDIR/sip_user.tmp
+        sed -i 's/|require|/qualify = yes/g'              $WORKDIR/sip_user.tmp
+        if [ "$can_call" = "yes" ] ; then
+            # Add user to list of all users that are allowed to make calls.
+            localusers_can_dial="$localusers_can_dial $userca"
+            sed -i "s/|CONTEXTNAME|/$userca/g"            $WORKDIR/sip_user.tmp
         else
-            localusers_to_ring="$localusers_to_ring\&SIP\/$defaultuser"
+            sed -i "s/|CONTEXTNAME|/$HANGUPCNTXT/g"       $WORKDIR/sip_user.tmp
         fi
+        # Add this user's configuration to the temp file containing all user configs.
+        sed "s/|FULLNAME|/$fullname/" $WORKDIR/sip_user.tmp |\
+                sed "s/|SECRET|/$secret/g"                       >> $WORKDIR/sip_users.TMP
+        if [ "$ring" = "yes" ] ; then
+            if [ -z "$localusers_to_ring" ] ; then
+                localusers_to_ring="SIP\/$fullname"
+            else
+                localusers_to_ring="$localusers_to_ring\&SIP\/$fullname"
+            fi
+        fi
+        # Add configuration which allows local users to call each other.
+        sed "s/|DEFAULTUSER|/$fullname/g"  $TMPL_EXTOUTLOCAL        >  $WORKDIR/loca1ext.tmp
+        sed "s/|DETUSER|/$usersco/g"       $WORKDIR/loca1ext.tmp   >>  $WORKDIR/localext.TMP
+        # Add configuration which puts calls to users through the default
+        # context, so that blacklists and voicemail take effect for this user.
+        sed "s/|DEFAULTUSER|/$fullname/g"  $TMPL_EXTDEFAULTUSER     >  $WORKDIR/inextu5er.tmp
+        sed "s/|DETUSER|/$usersco/g"       $WORKDIR/inextu5er.tmp  >>  $WORKDIR/inextuser.TMP
+    elif [ "$technology" = "iax" ] ; then
+        userca="IAX$fullname"
+        usersco="IAX\/$fullname"
+        # For now simplify set of defaut and variables
+        sed "s/|DEFAULTUSER|/$fullname/g"  $TMPL_IAXUSR        >       $WORKDIR/iax_user.tmp
+        # Add user to list of all IAX users.
+        sed -i 's/|hassip|/hassip = no/g'               $WORKDIR/iax_user.tmp
+        sed -i 's/|hasiax|/hasiax = yes/g'              $WORKDIR/iax_user.tmp
+        sed -i 's/|autoprov|/autoprov = no/g'           $WORKDIR/iax_user.tmp
+        sed -i 's/|insecure|/insecure = no/g'           $WORKDIR/iax_user.tmp
+        sed -i 's/|require|/requirecalltoken = no/g'    $WORKDIR/iax_user.tmp
+        if [ "$can_call" = "yes" ] ; then
+            # Add user to list of all users that are allowed to make calls.
+            localusers_can_dial="$localusers_can_dial $userca"
+            sed -i "s/|CONTEXTNAME|/$userca/g"          $WORKDIR/iax_user.tmp
+        else
+            sed -i "s/|CONTEXTNAME|/$HANGUPCNTXT/g"     $WORKDIR/iax_user.tmp
+        fi
+        # Add this user's configuration to the temp file containing all user configs.
+        sed "s/|FULLNAME|/$fullname/" $WORKDIR/iax_user.tmp |\
+                sed "s/|SECRET|/$secret/g"              >>              $WORKDIR/iax_users.TMP
+        if [ "$ring" = "yes" ] ; then
+            if [ -z "$localusers_to_ring" ] ; then
+                localusers_to_ring="IAX\/$fullname"
+            else
+                localusers_to_ring="$localusers_to_ring\&IAX\/$fullname"
+            fi
+        fi
+        # Add configuration which allows local users to call each other.
+        sed "s/|DEFAULTUSER|/$fullname/g"  $TMPL_EXTOUTLOCAL        >  $WORKDIR/local3xt.tmp
+        sed "s/|DETUSER|/$usersco/g"       $WORKDIR/local3xt.tmp   >>  $WORKDIR/localext.TMP
+
+        #  sed    "s/|DEFAULTUSER|/$defaultuser/g"    $TMPL_SIPREG     >  $WORKDIR/sip_reg.tmp
+        #  sed -i "s/|SECRET|/$secret/g"                                  $WORKDIR/sip_reg.tmp
+        #  sed -i "s/|OUTBOUNDPROXY|/$outboundproxy/g"                    $WORKDIR/sip_reg.tmp
+        #  sed -i "s/|FROMUSER|/$defaultuser/"                            $WORKDIR/sip_reg.tmp
+        #  sed -i "s/|HOST|/$host/"                                       $WORKDIR/sip_reg.tmp
+        #  sed -i "s/|PORT|/$port/"                                       $WORKDIR/sip_reg.tmp
+        #  sed    "s/|NAME|/$name/g"       $WORKDIR/sip_reg.tmp       >>  $WORKDIR/sip_regs.TMP
+
+        # Add configuration which puts calls to users through the default
+        # context, so that blacklists and voicemail take effect for this user.
+        sed "s/|DEFAULTUSER|/$fullname/g"  $TMPL_EXTDEFAULTUSER       >    $WORKDIR/inextus3r.tmp
+        sed "s/|DETUSER|/$usersco/g"       $WORKDIR/inextus3r.tmp    >>    $WORKDIR/inextuser.TMP
     fi
-
-    # Add configuration which allows local users to call each other.
-    sed "s/|DEFAULTUSER|/$defaultuser/g" $TMPL_EXTOUTLOCAL    >> $WORKDIR/localext.TMP
-
-    # Add configuration which puts calls to users through the default
-    # context, so that blacklists and voicemail take effect for this user.
-    sed "s/|DEFAULTUSER|/$defaultuser/g" $TMPL_EXTDEFAULTUSER >> $WORKDIR/inextuser.TMP
 
     rm -f $WORKDIR/sip_user.tmp
+    rm -f $WORKDIR/iax_user.tmp
+    rm -f $WORKDIR/local3xt.tmp
+    rm -f $WORKDIR/loca1ext.tmp
+    rm -f $WORKDIR/inextu5er.tmp
+    rm -f $WORKDIR/inextus3r.tmp
 }
 
 # Creates configuration for a Google account, and adds it to the temporary file that holds
@@ -358,13 +427,13 @@ pbx_add_jabber()
 
     # Construct a jabber entry for this provider.
     sed     "s/|USERNAME|/$username/g" $TMPL_JABBERUSER |\
-            sed "s/|NAME|/$name/g"                            > $WORKDIR/jabber.tmp
+            sed "s/|NAME|/$name/g"                  >      $WORKDIR/jabber.tmp
 
     if [ "$register" = yes ] ; then
         # If this provider is enabled for incoming calls, we need to set the
         # status of the user to something other than unavailable in order to receive calls.
-        sed -i "s/|STATUS|/$status/g"                   $WORKDIR/jabber.tmp
-        sed -i "s/|STATUSMESSAGE|/\"$statusmessage\"/g" $WORKDIR/jabber.tmp
+        sed -i "s/|STATUS|/$status/g"                      $WORKDIR/jabber.tmp
+        sed -i "s/|STATUSMESSAGE|/\"$statusmessage\"/g"    $WORKDIR/jabber.tmp
 
         users_to_ring="`uci -q get ${MODULENAME}-calls.incoming_calls.$name`"
         # If no users have been specified to ring, we ring all users enabled for incoming calls.
@@ -381,15 +450,15 @@ pbx_add_jabber()
         fi
 
         # Now, we add this account to the gtalk incoming context.
-        sed    "s/|USERNAME|/$username/g" $TMPL_EXTINCNTXTGTALK |\
-                   sed "s/|LOCALUSERS|/$users_to_ring/g"    >> $WORKDIR/outextgtalk.TMP
+        sed    "s/|USERNAME|/$username/g"                       $TMPL_EXTINCNTXTGTALK |\
+                   sed "s/|LOCALUSERS|/$users_to_ring/g"    >>  $WORKDIR/outextgtalk.TMP
     else
-        sed -i "s/|STATUS|/$GTALKUNVL/g"               $WORKDIR/jabber.tmp
-        sed -i "s/|STATUSMESSAGE|/\"\"/g"              $WORKDIR/jabber.tmp
+        sed -i "s/|STATUS|/$GTALKUNVL/g"                        $WORKDIR/jabber.tmp
+        sed -i "s/|STATUSMESSAGE|/\"\"/g"                       $WORKDIR/jabber.tmp
     fi
 
     # Add this account's configuration to the temp file containing all account configs.
-    sed "s/|SECRET|/$secret/g" $WORKDIR/jabber.tmp      >> $WORKDIR/jabber.TMP
+    sed "s/|SECRET|/$secret/g"    $WORKDIR/jabber.tmp    >>    $WORKDIR/jabber.TMP
 
     # If this provider is enabled for outgoing calls.
     if [ "$make_outgoing_calls" = "yes" ] ; then
@@ -402,7 +471,7 @@ pbx_add_jabber()
         for p in $numprefix ; do
             p=`escape_non_alpha $p`
             sed "s/|NUMPREFIX|/$p/g" $TMPL_EXTOUTGTALK |\
-                            sed "s/|NAME|/$name/g"            >> $WORKDIR/outext-$name.TMP
+                            sed "s/|NAME|/$name/g"     >>       $WORKDIR/outext-$name.TMP
         done
 
         # Add this provider to the list of enabled outbound providers.
@@ -447,8 +516,8 @@ pbx_add_peer()
     config_get host $1 host
     host=`escape_non_alpha $host`
     config_get port $1 port
-    config_get outbountproxy $1 outboundproxy
-    outbountproxy=`escape_non_alpha $outbountproxy`
+    config_get outboundproxy $1 outboundproxy
+    # outbountproxy=`escape_non_alpha $outbountproxy`
     config_get fromdomain $1 fromdomain
     fromdomain=`escape_non_alpha $fromdomain`
     config_get register $1 register
@@ -459,7 +528,7 @@ pbx_add_peer()
     [ -z "$defaultuser" -o -z "$secret" -o -z "$host" ] && return
     [ -z "$fromdomain" ]    && fromdomain=$host
     [ -n "$port" ]          && port="port=$port"
-    [ -n "$outboundproxy" ] && outboundproxy="outboundproxy=$outboundproxy"
+    # [ -n "$outboundproxy" ] && outboundproxy="outboundproxy=$outboundproxy"
 
     # Construct a sip peer entry for this provider.
     sed    "s/|DEFAULTUSER|/$defaultuser/" $TMPL_SIPPEER  >  $WORKDIR/sip_peer.tmp
@@ -475,9 +544,13 @@ pbx_add_peer()
     # If this provider is enabled for incoming calls.
     if [ "$register" = "yes" ] ; then
         # Then we create a registration string for this provider.
-        sed    "s/|DEFAULTUSER|/$defaultuser/g" $TMPL_SIPREG         > $WORKDIR/sip_reg.tmp
+        sed    "s/|DEFAULTUSER|/$defaultuser/g"    $TMPL_SIPREG     >  $WORKDIR/sip_reg.tmp
         sed -i "s/|SECRET|/$secret/g"                                  $WORKDIR/sip_reg.tmp
-        sed    "s/|NAME|/$name/g" $WORKDIR/sip_reg.tmp              >> $WORKDIR/sip_regs.TMP
+        sed -i "s/|OUTBOUNDPROXY|/$outboundproxy/g"                    $WORKDIR/sip_reg.tmp
+        sed -i "s/|FROMUSER|/$defaultuser/"                            $WORKDIR/sip_reg.tmp
+        sed -i "s/|HOST|/$host/"                                       $WORKDIR/sip_reg.tmp
+        sed -i "s/|PORT|/$port/"                                       $WORKDIR/sip_reg.tmp
+        sed    "s/|NAME|/$name/g"       $WORKDIR/sip_reg.tmp       >>  $WORKDIR/sip_regs.TMP
 
         users_to_ring="`uci -q get ${MODULENAME}-calls.incoming_calls.$name`"
         # If no users have been specified to ring, we ring all users enabled for incoming calls.
@@ -494,7 +567,7 @@ pbx_add_peer()
         fi
 
         # And we create an incoming calls context for this provider.
-        sed    "s/|NAME|/$name/g"                          $TMPL_EXTINCNTXTSIP |\
+        sed    "s/|NAME|/$name/g"                            $TMPL_EXTINCNTXTSIP |\
                     sed "s/|LOCALUSERS|/$users_to_ring/g"       >> $WORKDIR/inext.TMP
     fi
 
@@ -566,7 +639,7 @@ pbx_add_blacklist()
     cp $TMPL_EXTBLKLISTHDR                                   $WORKDIR/blacklist.TMP
     for n in $blacklist1 $blacklist2 ; do
         n=`escape_non_alpha $n`
-        sed "s/|BLACKLISTITEM|/$n/g" $TMPL_EXTBLKLIST >> $WORKDIR/blacklist.TMP 
+        sed "s/|BLACKLISTITEM|/$n/g"   $TMPL_EXTBLKLIST  >>  $WORKDIR/blacklist.TMP 
     done
     cat $TMPL_EXTBLKLISTFTR                               >> $WORKDIR/blacklist.TMP
 }
@@ -587,16 +660,18 @@ pbx_add_callthrough()
     config_get pin $1 pin
     pin=`escape_non_alpha $pin`
     config_get enabled $1 enabled
-
+    config_get fullname    $1 fullname
+    fullname=`escape_non_alpha $fullname`
+	
     [ "$enabled" = "no" ]   && return
-    [ "$defaultuser" = "" ] && return
+    [ "$fullname" = "" ] && return
 
     for callthrough_number in $callthrough_number_list ; do
         sed "s/|NUMBER|/$callthrough_number/g" $TMPL_EXTCTHRUCHECK >> $WORKDIR/callthroughcheck.TMP
 
 	if [ -n "$pin" ] ; then F=$TMPL_EXTCTHRU ; else F=$TMPL_EXTCTHRUNOPIN ; fi
         sed "s/|NUMBER|/$callthrough_number/g" $F             |\
-                    sed "s/|DEFAULTUSER|/$defaultuser/"       |\
+                    sed "s/|DEFAULTUSER|/$fullname/"       |\
                         sed "s/|PIN|/$pin/"                        >> $WORKDIR/callthrough.TMP
     done
 }
@@ -668,21 +743,189 @@ pbx_cook_sip_template()
 
     [ -z "$useragent" ] && useragent="$USERAGENT"
 
-    sed "s/|USERAGENT|/$useragent/g" $TMPL_SIP  > $WORKDIR/sip.conf
+    sed "s/|USERAGENT|/$useragent/g"  $TMPL_SIP  >  $WORKDIR/sip.conf
 
     if [ -z "$externhost" ] ; then
-        sed -i "s/externhost=|EXTERNHOST|//g" $WORKDIR/sip.conf
+        sed -i "s/externhost=|EXTERNHOST|//g"       $WORKDIR/sip.conf
     else
-        sed -i "s/|EXTERNHOST|/$externhost/g" $WORKDIR/sip.conf
+        sed -i "s/|EXTERNHOST|/$externhost/g"       $WORKDIR/sip.conf
     fi
 
     if [ -z "$bindport" ] ; then
-        sed -i "s/bindport=|BINDPORT|//g"     $WORKDIR/sip.conf
+        sed -i "s/bindport=|BINDPORT|//g"           $WORKDIR/sip.conf
     else
-        sed -i "s/|BINDPORT|/$bindport/g"     $WORKDIR/sip.conf
+        sed -i "s/|BINDPORT|/$bindport/g"           $WORKDIR/sip.conf
     fi
+#allowguest=no                  
+# Allow or reject guest calls (default is yes)
+# If your Asterisk is connected to the Internet
+# and you have allowguest=yes
+# you want to check which services you offer everyone
+#match_auth_username=yes        # if available, match user entry using the 'username' field from the authentication line
+#allowoverlap=yes               # Enable RFC3578 overlap dialing support.
+#allowtransfer=no               # Disable all transfers (unless enabled in peers or users)
+#domainsasrealm=no              # Use domains list as realms
+#tcpenable=no                    # Enable server for incoming TCP connections (default is no)
+#tlsenable=no                   # Enable server for incoming TLS (secure) connections (default is no)
+#maxexpiry=3600                 # Maximum allowed time of incoming registrations (seconds)
+#minexpiry=60                   # Minimum length of registrations (default 60)
+#defaultexpiry=120              # Default length of incoming/outgoing registration
+#submaxexpiry=3600              # Maximum allowed time of incoming subscriptions (seconds), default: maxexpiry
+#subminexpiry=60                # Minimum length of subscriptions, default: minexpiry
+#mwiexpiry=3600                 # Expiry time for outgoing MWI subscriptions
+#maxforwards=70			# Setting for the SIP Max-Forwards: header (loop prevention)
+				# Default value is 70
+#qualifyfreq=60                 # Qualification: How often to check for the host to be up in seconds
+				# and reported in milliseconds with sip show settings.
+                                # Set to low value if you use low timeout for NAT of UDP sessions
+				# Default: 60
+#qualifygap=100			# Number of milliseconds between each group of peers being qualified
+				# Default: 100
+#qualifypeers=1			# Number of peers in a group to be qualified at the same time
+				# Default: 1
+#keepalive=60                   # Interval at which keepalive packets should be sent to a peer
+				# Valid options are yes (60 seconds), no, or the number of seconds.
+                                # Default: 0
+#notifymimetype=text/plain      # Allow overriding of mime type in MWI NOTIFY
+#buggymwi=no                    # Cisco SIP firmware doesn't support the MWI RFC
+                                # fully. Enable this option to not get error messages
+                                # when sending MWI to phones with this bug.
+#mwi_from=asterisk              # When sending MWI NOTIFY requests, use this setting in
+                                # the From: header as the "name" portion. Also fill the
+			        # "user" portion of the URI in the From: header with this
+			        # value if no fromuser is set
+			        # Default: empty
+#vmexten=voicemail              # dialplan extension to reach mailbox sets the
+                                # Message-Account in the MWI notify message
+                                # defaults to "asterisk"
+#disallow=all                   # First disallow all codecs
+#allow=ulaw                     # Allow codecs in order of preference
+}
 
+pbx_cook_main_template()
+{
+    # Manage main asterisk.conf
+    local useragent
+    local externhost
+    local debug
+    local dumpcore
 
+    config_get cache_record_files               asterisk    cache_record_files
+    config_get debug asterisk debug
+    config_get dontwarn                         $1          dontwarn
+    config_get dumpcore asterisk dumpcore
+    #  config_get zone                        $1        zone
+    config_get maxcalls                         $1          maxcalls
+    config_get nocolor                          $1          nocolor
+    config_get transcode_via_sln                $1          transcode_via_sln
+    config_get transmit_silence_during_record   asterisk    transmit_silence
+    config_get live_dangerously                 $1          live_dangerously 
+    config_get verbose                          $1          verbose
+
+    nun='^[0-9]+$'
+    if [ "$cache_record_files" = "0" ] ; then 
+        sed 's/;cacherec|/cache_record_files = no/g'        $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    elif [ "$cache_record_files" = "1" ] ; then
+        sed 's/;cacherec|/cache_record_files = yes/g'       $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    fi # Cache recorded sound files during recording
+
+    if [ "$dumpcore" = "0" ] ; then
+        sed 's/;dumpcore|/dumpcore = no/g'                  $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    elif [ "$dumpcore" = "1" ] ; then
+        sed 's/;dumpcore|/dumpcore = yes/g'                 $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    fi # Dump core on crash
+
+    if [ "$debug" = "0" ] ; then 
+        sed 's/;demug|/debug = 0/g'                         $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    elif [ "$debug" = "1" ] ; then
+        sed 's/;demug|/debug = 1/g'                         $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    elif [ "$debug" = "2" ] ; then
+        sed 's/;demug|/debug = 2/g'                         $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    fi # Debug Level
+
+    if [ "$dontwarn" = "0" ] ; then
+        sed 's/;dontwarn|/dontwarn = no/g'                  $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    elif [ "$dontwarn" = "1" ] ; then
+        sed 's/;dontwarn|/dontwarn = yes/g'                 $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    fi # Disable some warnings	
+
+    if [ "$maxcalls" = "1" ] ; then 
+        sed 's/;maxcalls|/maxcalls = 1/g'                   $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    elif [ "$maxcalls" = "2" ] ; then
+        sed 's/;maxcalls|/maxcalls = 2/g'                   $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    elif [ "$maxcalls" = "8" ] ; then
+        sed 's/;maxcalls|/maxcalls = 8/g'                   $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    fi # Maximum number of calls allowed
+
+    if [ "$nocolor" = "0" ] ; then
+        sed 's/;nocolor|/nocolor = no/g'                    $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    elif [ "$nocolor" = "1" ] ; then
+        sed 's/;nocolor|/nocolor = yes/g'                   $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    fi # Disable console colors.
+
+    if [ "$transcode_via_sln" = "0" ] ; then
+        sed 's/;transcode|/transcode_via_sln = no/g'        $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    elif [ "$transcode_via_sln" = "1" ] ; then
+        sed 's/;transcode|/transcode_via_sln = yes/g'       $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    fi # Build transcode paths via SLINEAR, not directly
+
+    if [ "$transmit_silence" = "0" ] ; then 
+        sed 's/;silenc|/transmit_silence = no/g'            $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    elif [ "$transmit_silence" = "1" ] ; then
+        sed 's/;silenc|/transmit_silence = yes/g'           $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    fi # Transmit SLINEAR silence while recording a channel
+
+    if [ "$live_dangerously" = "0" ] ; then
+        sed 's/;live_dangerously|/live_dangerously = no/g'  $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    elif [ "$live_dangerously" = "1" ] ; then
+        sed 's/;live_dangerously|/live_dangerously = yes/g' $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    fi # Enable the execution of 'dangerous' dialplan	
+
+    if [ "$verbose" = "0" ] ; then 
+        sed 's/;verbose|/verbose = 0/g'                     $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    elif [ "$verbose" = "1" ] ; then
+        sed 's/;verbose|/verbose = 1/g'                     $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    elif [ "$verbose" = "2" ] ; then
+        sed 's/;verbose|/verbose = 2/g'                     $TMPL_ASTERISK  >  $WORKDIR/asterisk.conf
+    fi # Verbose Level
+    
+    # cp $TMPL_ASTERISK      $WORKDIR/asterisk.conf  uncomment ONLY if remove above code
+
+    # Manage iax.conf now implemented
+# We can register with another IAX2 server to let him know where we are
+# in case we have a dynamic IP address for example#
+# Register with tormenta using username marko and password secretpass#
+#register => marko:secretpass@tormenta.linux-support.net#
+# Register joe at remote host with no password#
+#register => joe@remotehost:5656#
+# Register marko at tormenta.linux-support.net using RSA key "torkey"
+#register => marko:[torkey]@tormenta.linux-support.net
+# Sample Registration for iaxtel
+# Visit http://www.iaxtel.com to register with iaxtel.  Replace "user"
+# and "pass" with your username and password for iaxtel.  Incoming
+# calls arrive at the "s" extension of "default" context.
+#register => user:pass@iaxtel.com
+# Sample Registration for IAX2 + FWD
+# To register using IAX2 with FWD, it must be enabled by visiting the URL
+# http://www.fwdnet.net/index.php?section_id=112#
+# Note that you need an extension in you default context which matches
+# your free world dialup number.  Please replace "FWDNumber" with your
+# FWD number and "passwd" with your password.
+#register => FWDNumber:passwd@iax.fwdnet.net
+    # maxcallnumbers=512 limits the amount of call numbers allowed
+    # The 'maxcallnumbers_nonvalidated' set the combined number of call
+    # numbers that can be allocated for connections where call token
+    # sed "s/|register|/$register/g" $TMPL_IAX > $WORKDIR/iax.conf
+    cp $TMPL_IAX            $WORKDIR/iax.conf
+
+    # Manage pjsip.conf not fully implemented (DEFAULT 3 users) SIP, IAX and PJSIP Voip Provider
+    # sed "s/|aors = URI|/$aors/g" $TMPL_PJSIP > $WORKDIR/pjsip.conf
+    # cp $TMPL_PJSIP           $WORKDIR/pjsip.conf
+    # PJSIP_users.TEMPLATEP    JSIP_peers.TEMPLATE
+
+    # Manage user.conf now implemented you can remove ";" from #include and put ";" into IAX and SIP conf
+    # sed "s/|USER|/$user/g" $TMPL_USER > $WORKDIR/user.conf
+    # cp $TMPL_USER           $WORKDIR/user.conf
 }
 
 # Creates rtp.conf from its template.
@@ -779,16 +1022,16 @@ pbx_configure_voicemail()
     chown nobody /tmp/voicemail
 
     # Create the recordings directory
-    mkdir -p     /etc/pbx-voicemail/recordings
-    chown nobody /etc/pbx-voicemail/recordings
-
-    # Working around a bug in OpenWRT 12.09-rc1
-    # TODO: REMOVE AS SOON AS POSSIBLE
-    chmod ugo+w /tmp
+    mkdir -p     /etc/pbx-asterisk/recordings
+    chown nobody /etc/pbx-asterisk/recordings
 }
 
 
 start() {
+    backme=$(date +"%Y%m%d%I%M%s")
+    backme="/etc/asterisk"$backme
+    mv "/etc/asterisk" $backme
+
     mkdir -p $WORKDIR
 
     # Create the users.
@@ -796,9 +1039,9 @@ start() {
     config_foreach pbx_add_user local_user
 
     # Create configuration for each google account.
-    config_unset
-    config_load ${MODULENAME}-google
-    config_foreach pbx_add_jabber gtalk_jabber
+    #     config_unset
+    #     config_load ${MODULENAME}-google
+    #     config_foreach pbx_add_jabber gtalk_jabber
 
     # Create configuration for each voip provider.
     config_unset
@@ -818,6 +1061,9 @@ start() {
     config_load ${MODULENAME}-advanced
     pbx_cook_sip_template
     pbx_cook_rtp_template
+
+    # Prepare settings from the "options" section.
+    pbx_cook_main_template
 
     # Prepare voicemail config.
     config_unset

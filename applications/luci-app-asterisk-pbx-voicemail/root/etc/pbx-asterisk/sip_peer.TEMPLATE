@@ -1,13 +1,18 @@
 
-[peer-|NAME|]
-type          = peer
-defaultuser   = |DEFAULTUSER|
-fromuser      = |FROMUSER|
-secret        = |SECRET|
+[|NAME|]
 host          = |HOST|
-fromdomain    = |FROMDOMAIN|
+username      = |DEFAULTUSER|
+defaultuser   = |DEFAULTUSER|
+secret        = |SECRET|
 context       = context-incoming-|NAME|
-insecure      = port,invite
-qualify       = 2000
-|PORT|
-|OUTBOUNDPROXY|
+hasexten      = no
+hasiax        = no
+hassip        = yes
+registeriax   = no
+registersip   = yes
+outboundproxy = |OUTBOUNDPROXY|
+fromuser          = |DEFAULTUSER|
+fromdomain          = |HOST|
+insecure = no
+disallow = all
+allow = alaw,ulaw,g729,g726

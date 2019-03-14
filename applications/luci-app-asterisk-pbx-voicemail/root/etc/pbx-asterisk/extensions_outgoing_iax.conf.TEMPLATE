@@ -1,0 +1,8 @@
+exten =>      _|NUMPREFIX|,1,Dial(IAX/${EXTEN}@|NAME|,60,r)
+exten =>     _+|NUMPREFIX|,1,Dial(IAX/${EXTEN}@|NAME|,60,r)
+exten =>     _|NUMPREFIX|.,1,Dial(IAX/${EXTEN}@|NAME|,60,r)
+exten =>    _+|NUMPREFIX|.,1,Dial(IAX/${EXTEN:1}@|NAME|,60,r)
+exten =>   _00|NUMPREFIX|.,1,Dial(IAX/${EXTEN:2}@|NAME|,60,r)
+exten =>  _011|NUMPREFIX|.,1,Dial(IAX/${EXTEN:3}@|NAME|,60,r)
+exten =>  _010|NUMPREFIX|.,1,Dial(IAX/${EXTEN:3}@|NAME|,60,r)
+exten => _0011|NUMPREFIX|.,1,Dial(IAX/${EXTEN:4}@|NAME|,60,r)

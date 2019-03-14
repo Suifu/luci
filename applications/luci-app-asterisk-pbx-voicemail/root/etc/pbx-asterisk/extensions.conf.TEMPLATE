@@ -14,6 +14,7 @@ exten => _X.,1,Hangup()
 
 [context-catch-all]
 exten   => _[!-~].,1,Dial(SIP/${EXTEN},60,r)
+;Dial(PJSIP\ @ )
 
 #include extensions_default.conf
 #include extensions_voicemail.conf
