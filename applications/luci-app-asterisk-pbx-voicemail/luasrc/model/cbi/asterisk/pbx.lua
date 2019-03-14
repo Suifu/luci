@@ -55,7 +55,7 @@ function format_indices(string, indices)
       loutput = ""
       for ipos,index in ipairs(indices) do
          if splitline[index] ~= nil then
-            loutput = loutput .. string.format("%-40s", splitline[index])
+            loutput = loutput .. string.format("%20s", splitline[index])
          else
             loutput = nil
             break
